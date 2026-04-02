@@ -5,7 +5,13 @@ metadata:
   name: {{ policy_name }}
 spec:
   nodeSelector:
-    kubernetes.io/hostname: {{ hostname }}
+{% for key, value in node_selector.items() %}
+{% if value %}
+    {{ key }}: "{{ value }}"
+{% else %}
+    {{ key }}: ""
+{% endif %}
+{% endfor %}
   desiredState:
     interfaces:
 {# --- Physical interfaces (NICs) --- #}

@@ -4,13 +4,15 @@ A CLI utility to generate Kubernetes `NodeNetworkConfigurationPolicy` (NNCP) man
 
 ## Features
 
+- **Role-based targeting** — one NNCP per Kubernetes node role (worker, master, infra, etc.)
+- **Node-based targeting** — one NNCP per individual node with per-node static IPs
 - **OVS bridges** with OVS internal interfaces and OVN bridge-mappings
 - **Linux bridges** with static IP
 - **Bonds** (LACP, active-backup, etc.) as uplinks
 - **VLANs** as OVS access tags or standalone interfaces
 - **Multi-node** — define once, generate per-node with unique IPs
 - **Auto-naming** — policy names, interface names generated from conventions
-- **Validation** — catches duplicate IPs, missing nodes, bad config
+- **Validation** — catches duplicate IPs, missing nodes/roles, bad config
 - **Dry-run** — preview without writing files
 - **Flexible output** — per-file, single multi-doc YAML, or stdout
 
@@ -60,6 +62,17 @@ defaults:
   bond_mode: 802.3ad
   lacp_rate: fast
 
+# Role-based: targets nodes by label selector
+roles:
+  worker:
+    node_selector:
+      node-role.kubernetes.io/worker: ""
+  infra:
+    node_selector:
+      node-role.kubernetes.io/infra: ""
+      cluster.example.com/zone: dmz
+
+# Node-based: targets individual nodes by hostname
 nodes:
   wrkr01:
     hostname: wrkr01.example.com
@@ -67,37 +80,23 @@ nodes:
     hostname: wrkr02.example.com
 
 networks:
-  # OVS bridge with single NIC
+  # Role-based: one NNCP for all workers (no per-node IPs)
   vm-access:
+    role: worker                        # targets the 'worker' role
     bridge: br-vma
     nic: ens2f1
     vlan: 54
     allow_extra_patch_ports: true
-    ovn_mapping: vm-access-br       # optional
-    addresses:
-      wrkr01: 172.25.54.23/24
-      wrkr02: 172.25.54.24/24
+    ovn_mapping: vm-access-br
 
-  # OVS bridge with bond uplink
+  # Node-based: one NNCP per node with static IPs
   storage:
     bridge: br-storage
-    bond:
-      name: bond0
-      members: [ens1f0, ens1f1]
-      mode: 802.3ad
+    nic: ens1f0
     vlan: 100
-    addresses:
+    addresses:                          # per-node IPs (node-based only)
       wrkr01: 172.25.100.23/24
       wrkr02: 172.25.100.24/24
-
-  # Linux bridge
-  mgmt:
-    bridge: br-mgmt
-    bridge_type: linux-bridge
-    nic: ens1f0
-    addresses:
-      wrkr01: 10.0.1.11/24
-      wrkr02: 10.0.1.12/24
 ```
 
 ## Config Reference
@@ -111,6 +110,11 @@ networks:
 | `bond_mode` | string | `802.3ad` | Bond mode |
 | `lacp_rate` | string | `fast` | LACP rate |
 
+### `roles.<name>`
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `node_selector` | map | yes | Label key/value pairs for nodeSelector |
+
 ### `nodes.<name>`
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -119,6 +123,7 @@ networks:
 ### `networks.<name>`
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
+| `role` | string | no | Target a role instead of individual nodes |
 | `nic` | string | nic or bond | Physical interface name |
 | `bond` | object | nic or bond | Bond config (see below) |
 | `bridge` | string | no | Bridge name (auto-generated if omitted) |
@@ -126,7 +131,7 @@ networks:
 | `vlan` | int | no | VLAN ID (access tag on OVS port) |
 | `allow_extra_patch_ports` | bool | no | OVS bridge option |
 | `ovn_mapping` | string/object | no | OVN bridge-mapping localnet name |
-| `addresses` | map | no | node → CIDR address mapping |
+| `addresses` | map | no | node → CIDR mapping (node-based only, not with role) |
 
 ### `networks.<name>.bond`
 | Field | Type | Default | Description |

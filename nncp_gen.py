@@ -26,9 +26,9 @@ def parse_cidr(cidr_str):
     return str(net.ip), int(net.network.prefixlen)
 
 
-def auto_policy_name(network_name, node_name):
-    """Generate a policy name like pol-storage-wrkr01."""
-    return f"pol-{network_name}-{node_name}"
+def auto_policy_name(network_name, target_name):
+    """Generate a policy name like pol-storage-wrkr01 or pol-storage-worker."""
+    return f"pol-{network_name}-{target_name}"
 
 
 def auto_ovs_iface_name(network_name, index=0):
@@ -63,21 +63,35 @@ def validate_config(config):
     """Validate the config and return a list of errors (empty = valid)."""
     errors = []
 
-    if 'nodes' not in config or not config['nodes']:
-        errors.append("No 'nodes' defined in config.")
+    nodes = config.get('nodes', {})
+    roles = config.get('roles', {})
+    networks = config.get('networks', {})
 
-    if 'networks' not in config or not config['networks']:
+    if not nodes and not roles:
+        errors.append("Must define at least one of 'nodes' or 'roles'.")
+
+    if not networks:
         errors.append("No 'networks' defined in config.")
 
     if errors:
         return errors
 
+    # Validate roles have labels
+    for role_name, role_cfg in roles.items():
+        if not role_cfg:
+            errors.append(f"Role '{role_name}': must have configuration.")
+            continue
+        if 'labels' not in role_cfg and 'node_selector' not in role_cfg:
+            errors.append(
+                f"Role '{role_name}': must define 'labels' or 'node_selector'."
+            )
+
     # Check for duplicate IPs across all networks
     all_ips = {}
-    for net_name, net_cfg in config.get('networks', {}).items():
+    for net_name, net_cfg in networks.items():
         addresses = net_cfg.get('addresses', {})
         for node_name, addr in addresses.items():
-            if node_name not in config.get('nodes', {}):
+            if node_name not in nodes:
                 errors.append(
                     f"Network '{net_name}' references node '{node_name}' "
                     f"which is not defined in 'nodes'."
@@ -95,7 +109,7 @@ def validate_config(config):
                     all_ips[key] = f"{net_name}/{node_name}"
 
     # Check required fields per network
-    for net_name, net_cfg in config.get('networks', {}).items():
+    for net_name, net_cfg in networks.items():
         bridge_type = net_cfg.get('bridge_type',
                                    config.get('defaults', {}).get('bridge_type', 'ovs-bridge'))
         if bridge_type not in ('ovs-bridge', 'linux-bridge'):
@@ -110,6 +124,22 @@ def validate_config(config):
                 f"Network '{net_name}': must specify 'nic' or 'bond'."
             )
 
+        # Validate target references
+        target_role = net_cfg.get('role')
+        target_nodes = net_cfg.get('target_nodes')
+
+        if target_role and target_role not in roles:
+            errors.append(
+                f"Network '{net_name}': references role '{target_role}' "
+                f"which is not defined in 'roles'."
+            )
+
+        if target_role and net_cfg.get('addresses'):
+            errors.append(
+                f"Network '{net_name}': role-based networks cannot use "
+                f"per-node 'addresses'. Use DHCP or omit addresses."
+            )
+
     return errors
 
 
@@ -117,29 +147,31 @@ def validate_config(config):
 # NNCP Builder
 # ---------------------------------------------------------------------------
 
-def build_nncp_context(node_name, node_cfg, net_name, net_cfg, defaults):
-    """Build the Jinja2 template context for one NNCP (one node + one network)."""
+def build_nncp_context(target_name, node_selector, net_name, net_cfg, defaults,
+                       node_ip=None):
+    """Build the Jinja2 template context for one NNCP.
 
-    hostname = node_cfg.get('hostname', node_name)
+    Args:
+        target_name: Node name or role name (used for policy naming).
+        node_selector: Dict of label key/value pairs for nodeSelector.
+        net_name: Network name from config.
+        net_cfg: Network configuration dict.
+        defaults: Default values dict.
+        node_ip: Optional dict with 'address' and 'prefix_length' keys.
+    """
+
     mtu = net_cfg.get('mtu', defaults.get('mtu'))
     bridge_type = net_cfg.get('bridge_type', defaults.get('bridge_type', 'ovs-bridge'))
     stp = net_cfg.get('stp', defaults.get('stp', False))
     allow_extra_patch_ports = net_cfg.get('allow_extra_patch_ports',
                                            defaults.get('allow_extra_patch_ports', False))
 
-    # Address for this node
-    address_str = net_cfg.get('addresses', {}).get(node_name)
-    node_ip = None
-    if address_str:
-        ip, prefix = parse_cidr(address_str)
-        node_ip = {'address': ip, 'prefix_length': prefix}
-
     # Policy name
     policy_name = net_cfg.get('policy_name_template')
     if policy_name:
-        policy_name = policy_name.format(network=net_name, node=node_name)
+        policy_name = policy_name.format(network=net_name, node=target_name)
     else:
-        policy_name = auto_policy_name(net_name, node_name)
+        policy_name = auto_policy_name(net_name, target_name)
 
     # --- Build interface lists ---
     nics = []
@@ -270,7 +302,7 @@ def build_nncp_context(node_name, node_cfg, net_name, net_cfg, defaults):
 
     return {
         'policy_name': policy_name,
-        'hostname': hostname,
+        'node_selector': node_selector,
         'nics': nics,
         'bonds': bonds,
         'ovs_interfaces': ovs_interfaces,
@@ -358,7 +390,8 @@ Examples:
         sys.exit(0)
 
     defaults = config.get('defaults', {})
-    nodes = config.get('nodes', {})
+    nodes = config.get('nodes', {}) or {}
+    roles = config.get('roles', {}) or {}
     networks = config.get('networks', {})
 
     # Filter if requested
@@ -379,26 +412,72 @@ Examples:
     file_outputs = []
 
     for net_name, net_cfg in networks.items():
-        for node_name, node_cfg in nodes.items():
-            # Skip nodes that don't have an address for this network
-            # (unless no addresses are defined at all)
-            if net_cfg.get('addresses') and node_name not in net_cfg['addresses']:
-                continue
+        target_role = net_cfg.get('role')
 
-            if node_cfg is None:
-                node_cfg = {}
+        if target_role:
+            # --- Role-based: one NNCP per role ---
+            if target_role not in roles:
+                continue
+            role_cfg = roles[target_role]
+            # Build nodeSelector from role labels
+            node_selector = role_cfg.get('node_selector') or {}
+            if not node_selector and role_cfg.get('labels'):
+                node_selector = dict(role_cfg['labels'])
 
             context = build_nncp_context(
-                node_name, node_cfg, net_name, net_cfg, defaults
+                target_name=target_role,
+                node_selector=node_selector,
+                net_name=net_name,
+                net_cfg=net_cfg,
+                defaults=defaults,
+                node_ip=None,  # role-based = no per-node IP
             )
             rendered = render_nncp(context, args.template_dir)
             all_docs.append(rendered)
             file_outputs.append({
                 'filename': f"{context['policy_name']}.yaml",
                 'content': rendered,
-                'node': node_name,
+                'node': target_role,
                 'network': net_name,
             })
+        else:
+            # --- Node-based: one NNCP per node ---
+            for node_name, node_cfg in nodes.items():
+                # Skip nodes that don't have an address for this network
+                # (unless no addresses are defined at all)
+                if net_cfg.get('addresses') and node_name not in net_cfg['addresses']:
+                    continue
+
+                if node_cfg is None:
+                    node_cfg = {}
+
+                # Build nodeSelector from hostname
+                hostname = node_cfg.get('hostname', node_name)
+                node_selector = {'kubernetes.io/hostname': hostname}
+
+                # Per-node address
+                node_ip = None
+                address_str = net_cfg.get('addresses', {}).get(node_name)
+                if address_str:
+                    ip, prefix = parse_cidr(address_str)
+                    node_ip = {'address': ip, 'prefix_length': prefix}
+
+                context = build_nncp_context(
+                    target_name=node_name,
+                    node_selector=node_selector,
+                    net_name=net_name,
+                    net_cfg=net_cfg,
+                    defaults=defaults,
+                    node_ip=node_ip,
+                )
+                rendered = render_nncp(context, args.template_dir)
+                all_docs.append(rendered)
+                file_outputs.append({
+                    'filename': f"{context['policy_name']}.yaml",
+                    'content': rendered,
+                    'node': node_name,
+                    'network': net_name,
+                })
 
     if not all_docs:
         print("No NNCPs generated. Check your config.", file=sys.stderr)
