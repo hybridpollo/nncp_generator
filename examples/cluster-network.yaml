@@ -45,6 +45,52 @@ networks:
       wrkr02: 172.25.100.24/24
       wrkr03: 172.25.100.25/24
 
+  # --- OVS bridge with OVN mapping (simple string form) ---
+  # Just pass the localnet name as a string. The bridge name is auto-resolved.
+  tenant:
+    bridge: br-tenant
+    bridge_type: ovs-bridge
+    nic: ens3f0
+    vlan: 200
+    allow_extra_patch_ports: true
+    ovn_mapping: tenant-net            # simple form: localnet name only
+    addresses:
+      wrkr01: 172.25.200.23/24
+      wrkr02: 172.25.200.24/24
+      wrkr03: 172.25.200.25/24
+
+  # --- OVS bridge with OVN mapping (detailed dict form) ---
+  # Use the dict form when you need to override the bridge name or state.
+  provider:
+    bridge: br-provider
+    bridge_type: ovs-bridge
+    bond:
+      name: bond1
+      members: [ens4f0, ens4f1]
+      mode: 802.3ad
+    vlan: 300
+    allow_extra_patch_ports: true
+    ovn_mapping:                        # detailed form
+      localnet: provider-net
+      bridge: br-provider               # explicit bridge (defaults to network bridge)
+      state: present                    # present | absent
+    addresses:
+      wrkr01: 172.25.30.23/24
+      wrkr02: 172.25.30.24/24
+      wrkr03: 172.25.30.25/24
+
+  # --- OVS bridge WITHOUT OVN mapping ---
+  # Just omit the ovn_mapping field entirely.
+  storage-internal:
+    bridge: br-stor-int
+    bridge_type: ovs-bridge
+    nic: ens5f0
+    vlan: 400
+    addresses:
+      wrkr01: 172.25.40.23/24
+      wrkr02: 172.25.40.24/24
+      wrkr03: 172.25.40.25/24
+
   # --- Linux bridge example ---
   mgmt:
     bridge: br-mgmt
