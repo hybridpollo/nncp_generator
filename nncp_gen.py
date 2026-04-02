@@ -182,16 +182,19 @@ def build_nncp_context(node_name, node_cfg, net_name, net_cfg, defaults):
     bridge_name = net_cfg.get('bridge', auto_bridge_name(net_name, bridge_type))
 
     if bridge_type == 'ovs-bridge':
-        # OVS interface (the internal port that gets the IP)
-        ovs_iface_name = net_cfg.get('ovs_interface',
-                                      auto_ovs_iface_name(net_name))
-        ovs_iface = {
-            'name': ovs_iface_name,
-            'mtu': mtu,
-        }
+        # OVS interface is only created when the node has an IP address
+        # assigned for this network (e.g., host management on the bridge).
+        # For pure VM traffic bridges, no OVS interface is needed.
+        ovs_iface_name = None
         if node_ip:
-            ovs_iface['ipv4'] = node_ip
-        ovs_interfaces.append(ovs_iface)
+            ovs_iface_name = net_cfg.get('ovs_interface',
+                                          auto_ovs_iface_name(net_name))
+            ovs_iface = {
+                'name': ovs_iface_name,
+                'mtu': mtu,
+                'ipv4': node_ip,
+            }
+            ovs_interfaces.append(ovs_iface)
 
         # Build port list
         ports = []
@@ -199,20 +202,21 @@ def build_nncp_context(node_name, node_cfg, net_name, net_cfg, defaults):
         uplink_port = {'name': uplink_name}
         ports.append(uplink_port)
 
-        # OVS interface port (with optional VLAN access tag)
-        ovs_port = {'name': ovs_iface_name}
-        if vlan_on_bridge:
-            ovs_port['vlan'] = {
-                'mode': vlan_on_bridge.get('mode', 'access'),
-                'tag': vlan_on_bridge.get('tag', vlan_on_bridge.get('id')),
-            }
-        elif vlan_cfg:
-            # If there's a vlan config, apply as access tag on the OVS port
-            ovs_port['vlan'] = {
-                'mode': 'access',
-                'tag': vlan_cfg if isinstance(vlan_cfg, int) else vlan_cfg.get('id'),
-            }
-        ports.append(ovs_port)
+        # OVS interface port (only if we created one)
+        if ovs_iface_name:
+            ovs_port = {'name': ovs_iface_name}
+            if vlan_on_bridge:
+                ovs_port['vlan'] = {
+                    'mode': vlan_on_bridge.get('mode', 'access'),
+                    'tag': vlan_on_bridge.get('tag', vlan_on_bridge.get('id')),
+                }
+            elif vlan_cfg:
+                # If there's a vlan config, apply as access tag on the OVS port
+                ovs_port['vlan'] = {
+                    'mode': 'access',
+                    'tag': vlan_cfg if isinstance(vlan_cfg, int) else vlan_cfg.get('id'),
+                }
+            ports.append(ovs_port)
 
         ovs_bridges.append({
             'name': bridge_name,
