@@ -1,0 +1,56 @@
+# nncp-gen example config
+# This should produce NNCPs equivalent to your hand-written example.
+
+defaults:
+  mtu: 9000
+  bridge_type: ovs-bridge    # ovs-bridge | linux-bridge
+  stp: false
+  bond_mode: 802.3ad
+  lacp_rate: fast
+
+nodes:
+  wrkr01:
+    hostname: wrkr01.ovelab.acanorex.io
+  wrkr02:
+    hostname: wrkr02.ovelab.acanorex.io
+  wrkr03:
+    hostname: wrkr03.ovelab.acanorex.io
+
+networks:
+  # --- OVS bridge example (matches your original NNCP) ---
+  vma:
+    bridge: br-vma
+    bridge_type: ovs-bridge
+    nic: ens2f1
+    vlan: 54                          # applied as access tag on the OVS internal port
+    allow_extra_patch_ports: true
+    ovn_mapping: vm-access-br         # optional — creates OVN bridge-mapping
+    addresses:
+      wrkr01: 172.25.54.23/24
+      wrkr02: 172.25.54.24/24
+      wrkr03: 172.25.54.25/24
+
+  # --- OVS bridge with bond uplink ---
+  storage:
+    bridge: br-storage
+    bridge_type: ovs-bridge
+    bond:
+      name: bond0
+      members: [ens1f0, ens1f1]
+      mode: 802.3ad
+    vlan: 100
+    allow_extra_patch_ports: false
+    addresses:
+      wrkr01: 172.25.100.23/24
+      wrkr02: 172.25.100.24/24
+      wrkr03: 172.25.100.25/24
+
+  # --- Linux bridge example ---
+  mgmt:
+    bridge: br-mgmt
+    bridge_type: linux-bridge
+    nic: ens1f0
+    addresses:
+      wrkr01: 10.0.1.11/24
+      wrkr02: 10.0.1.12/24
+      wrkr03: 10.0.1.13/24

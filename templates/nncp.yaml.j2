@@ -1,0 +1,179 @@
+---
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: {{ policy_name }}
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: {{ hostname }}
+  desiredState:
+    interfaces:
+{# --- Physical interfaces (NICs) --- #}
+{% for nic in nics %}
+      - name: {{ nic.name }}
+        type: ethernet
+        state: up
+{% if nic.mtu is defined %}
+        mtu: {{ nic.mtu }}
+{% endif %}
+        ipv4:
+          dhcp: false
+          enabled: false
+        ipv6:
+          dhcp: false
+          enabled: false
+{% endfor %}
+{# --- Bond interfaces --- #}
+{% for bond in bonds %}
+      - name: {{ bond.name }}
+        type: bond
+        state: up
+{% if bond.mtu is defined %}
+        mtu: {{ bond.mtu }}
+{% endif %}
+        ipv4:
+{% if bond.ipv4 is defined and bond.ipv4.address is defined %}
+          enabled: true
+          dhcp: false
+          address:
+            - ip: {{ bond.ipv4.address }}
+              prefix-length: {{ bond.ipv4.prefix_length }}
+{% else %}
+          dhcp: false
+          enabled: false
+{% endif %}
+        ipv6:
+          dhcp: false
+          enabled: false
+        link-aggregation:
+          mode: {{ bond.mode | default('802.3ad') }}
+          options:
+            lacp_rate: {{ bond.lacp_rate | default('fast') }}
+{% if bond.options is defined %}
+{% for key, value in bond.options.items() %}
+            {{ key }}: {{ value }}
+{% endfor %}
+{% endif %}
+          port:
+{% for member in bond.members %}
+            - {{ member }}
+{% endfor %}
+{% endfor %}
+{# --- OVS interfaces --- #}
+{% for ovs_iface in ovs_interfaces %}
+      - name: {{ ovs_iface.name }}
+        type: ovs-interface
+        state: up
+{% if ovs_iface.mtu is defined %}
+        mtu: {{ ovs_iface.mtu }}
+{% endif %}
+        ipv4:
+{% if ovs_iface.ipv4 is defined and ovs_iface.ipv4.address is defined %}
+          enabled: true
+          dhcp: false
+          address:
+            - ip: {{ ovs_iface.ipv4.address }}
+              prefix-length: {{ ovs_iface.ipv4.prefix_length }}
+{% else %}
+          dhcp: false
+          enabled: false
+{% endif %}
+        ipv6:
+          enabled: false
+{% endfor %}
+{# --- OVS Bridge --- #}
+{% for bridge in ovs_bridges %}
+      - name: {{ bridge.name }}
+        type: ovs-bridge
+        state: up
+{% if bridge.mtu is defined %}
+        mtu: {{ bridge.mtu }}
+{% endif %}
+        bridge:
+{% if bridge.allow_extra_patch_ports | default(false) %}
+          allow-extra-patch-ports: true
+{% endif %}
+          options:
+            stp: {{ bridge.stp | default(false) | lower }}
+          port:
+{% for port in bridge.ports %}
+            - name: {{ port.name }}
+{% if port.vlan is defined %}
+              vlan:
+                mode: {{ port.vlan.mode | default('access') }}
+                tag: {{ port.vlan.tag }}
+{% endif %}
+{% endfor %}
+{% endfor %}
+{# --- Linux Bridge --- #}
+{% for bridge in linux_bridges %}
+      - name: {{ bridge.name }}
+        type: linux-bridge
+        state: up
+{% if bridge.mtu is defined %}
+        mtu: {{ bridge.mtu }}
+{% endif %}
+        ipv4:
+{% if bridge.ipv4 is defined and bridge.ipv4.address is defined %}
+          enabled: true
+          dhcp: false
+          address:
+            - ip: {{ bridge.ipv4.address }}
+              prefix-length: {{ bridge.ipv4.prefix_length }}
+{% else %}
+          dhcp: false
+          enabled: false
+{% endif %}
+        ipv6:
+          dhcp: false
+          enabled: false
+        bridge:
+          options:
+            stp:
+              enabled: {{ bridge.stp | default(false) | lower }}
+          port:
+{% for port in bridge.ports %}
+            - name: {{ port.name }}
+{% if port.vlan is defined %}
+              vlan:
+                mode: {{ port.vlan.mode | default('access') }}
+                tag: {{ port.vlan.tag }}
+{% endif %}
+{% endfor %}
+{% endfor %}
+{# --- VLAN interfaces --- #}
+{% for vlan in vlans %}
+      - name: {{ vlan.name }}
+        type: vlan
+        state: up
+{% if vlan.mtu is defined %}
+        mtu: {{ vlan.mtu }}
+{% endif %}
+        vlan:
+          base-iface: {{ vlan.base_iface }}
+          id: {{ vlan.id }}
+        ipv4:
+{% if vlan.ipv4 is defined and vlan.ipv4.address is defined %}
+          enabled: true
+          dhcp: false
+          address:
+            - ip: {{ vlan.ipv4.address }}
+              prefix-length: {{ vlan.ipv4.prefix_length }}
+{% else %}
+          dhcp: false
+          enabled: false
+{% endif %}
+        ipv6:
+          dhcp: false
+          enabled: false
+{% endfor %}
+{# --- OVN bridge mappings --- #}
+{% if ovn_mappings %}
+    ovn:
+      bridge-mappings:
+{% for mapping in ovn_mappings %}
+        - localnet: {{ mapping.localnet }}
+          bridge: {{ mapping.bridge }}
+          state: {{ mapping.state | default('present') }}
+{% endfor %}
+{% endif %}
