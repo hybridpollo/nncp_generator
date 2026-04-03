@@ -260,6 +260,20 @@ def build_nncp_context(target_name, node_selector, net_name, net_cfg, defaults,
                 }
             ports.append(extra_port)
 
+            # If the extra port is an ovs-interface, generate the interface too
+            if extra.get('type') == 'ovs-interface':
+                ovs_extra = {
+                    'name': extra['name'],
+                    'mtu': extra.get('mtu', mtu),
+                }
+                if extra.get('ipv4'):
+                    if isinstance(extra['ipv4'], str):
+                        ip, prefix = parse_cidr(extra['ipv4'])
+                        ovs_extra['ipv4'] = {'address': ip, 'prefix_length': prefix}
+                    elif isinstance(extra['ipv4'], dict):
+                        ovs_extra['ipv4'] = extra['ipv4']
+                ovs_interfaces.append(ovs_extra)
+
         ovs_bridges.append({
             'name': bridge_name,
             'mtu': mtu,
