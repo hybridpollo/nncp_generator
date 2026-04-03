@@ -250,6 +250,16 @@ def build_nncp_context(target_name, node_selector, net_name, net_cfg, defaults,
                 }
             ports.append(ovs_port)
 
+        # Extra ports (user-defined additional ports on the bridge)
+        for extra in net_cfg.get('extra_ports', []):
+            extra_port = {'name': extra['name']}
+            if extra.get('vlan'):
+                extra_port['vlan'] = {
+                    'mode': extra['vlan'].get('mode', 'access'),
+                    'tag': extra['vlan'].get('tag', extra['vlan'].get('id')),
+                }
+            ports.append(extra_port)
+
         ovs_bridges.append({
             'name': bridge_name,
             'mtu': mtu,
@@ -276,11 +286,21 @@ def build_nncp_context(target_name, node_selector, net_name, net_cfg, defaults,
 
     elif bridge_type == 'linux-bridge':
         # Linux bridge gets the IP directly
+        br_ports = [{'name': uplink_name}]
+        # Extra ports
+        for extra in net_cfg.get('extra_ports', []):
+            extra_port = {'name': extra['name']}
+            if extra.get('vlan'):
+                extra_port['vlan'] = {
+                    'mode': extra['vlan'].get('mode', 'access'),
+                    'tag': extra['vlan'].get('tag', extra['vlan'].get('id')),
+                }
+            br_ports.append(extra_port)
         bridge = {
             'name': bridge_name,
             'mtu': mtu,
             'stp': stp,
-            'ports': [{'name': uplink_name}],
+            'ports': br_ports,
         }
         if node_ip:
             bridge['ipv4'] = node_ip
