@@ -108,7 +108,7 @@ networks:
     ovn_mapping: vm-storage-br
     extra_ports:
       - name: ens2f2                    # plain NIC port
-      - name: ovs-storage0             # OVS interface with IP + VLAN
+      - name: ovs-storage0             # OVS interface with static IP + VLAN
         type: ovs-interface
         mtu: 9000
         ipv4: 172.25.54.23/24
@@ -117,6 +117,20 @@ networks:
           tag: 54
       - name: ovs-internal0            # OVS interface without IP
         type: ovs-interface
+
+  # Extra ports with per-node IPs (node-based)
+  storage:
+    bridge: br-storage
+    nic: ens3f0
+    extra_ports:
+      - name: ovs-stor0
+        type: ovs-interface
+        vlan:
+          mode: access
+          tag: 55
+        addresses:                      # unique IP per node
+          wrkr01: 172.25.55.23/24
+          wrkr02: 172.25.55.24/24
 ```
 
 ## Config Reference
@@ -160,7 +174,8 @@ networks:
 | `name` | string | yes | Port/interface name |
 | `type` | string | no | Set to `ovs-interface` to generate an OVS internal interface |
 | `mtu` | int | no | MTU override (defaults to network/global MTU) |
-| `ipv4` | string | no | IP address in CIDR format, e.g. `172.25.54.23/24` (ovs-interface only) |
+| `ipv4` | string | no | Static IP in CIDR format, e.g. `172.25.54.23/24` (ovs-interface only, same IP for all nodes) |
+| `addresses` | map | no | Per-node IPs: `node_name: CIDR` (ovs-interface only, takes priority over `ipv4`) |
 | `vlan` | object | no | VLAN config for this port (`mode` + `tag`) |
 
 ### `networks.<name>.bond`

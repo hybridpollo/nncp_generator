@@ -105,6 +105,22 @@ networks:
       - name: ovs-int0                  # OVS interface, no IP
         type: ovs-interface
 
+  # OVS bridge with per-node IPs on an extra OVS interface (node-based)
+  vm-storage-pn:
+    bridge: br-vm-stor-pn
+    nic: ens7f0
+    allow_extra_patch_ports: true
+    extra_ports:
+      - name: ovs-pn0
+        type: ovs-interface
+        vlan:
+          mode: access
+          tag: 60
+        addresses:                       # per-node IPs on the extra port
+          wrkr01: 172.25.60.23/24
+          wrkr02: 172.25.60.24/24
+          wrkr03: 172.25.60.25/24
+
   # ===========================================================================
   # NODE-BASED EXAMPLES
   # These generate one NNCP per node with per-node static IPs.

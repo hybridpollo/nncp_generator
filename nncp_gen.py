@@ -108,6 +108,26 @@ def validate_config(config):
                 else:
                     all_ips[key] = f"{net_name}/{node_name}"
 
+        # Also check IPs in extra_ports addresses
+        for extra in net_cfg.get('extra_ports', []):
+            for node_name, addr in extra.get('addresses', {}).items():
+                if node_name not in nodes:
+                    errors.append(
+                        f"Network '{net_name}', extra_port '{extra.get('name', '?')}' "
+                        f"references node '{node_name}' which is not defined in 'nodes'."
+                    )
+                if addr:
+                    ip_str, _ = parse_cidr(addr)
+                    key = f"{ip_str}"
+                    if key in all_ips:
+                        errors.append(
+                            f"Duplicate IP {ip_str}: used in network '{net_name}' "
+                            f"extra_port '{extra.get('name', '?')}' for node "
+                            f"'{node_name}' and also in '{all_ips[key]}'."
+                        )
+                    else:
+                        all_ips[key] = f"{net_name}/{extra.get('name', '?')}/{node_name}"
+
     # Check required fields per network
     for net_name, net_cfg in networks.items():
         bridge_type = net_cfg.get('bridge_type',
@@ -266,12 +286,19 @@ def build_nncp_context(target_name, node_selector, net_name, net_cfg, defaults,
                     'name': extra['name'],
                     'mtu': extra.get('mtu', mtu),
                 }
-                if extra.get('ipv4'):
+                # Resolve IP: per-node addresses take priority, then static ipv4
+                extra_ip = None
+                if extra.get('addresses') and extra['addresses'].get(target_name):
+                    ip, prefix = parse_cidr(extra['addresses'][target_name])
+                    extra_ip = {'address': ip, 'prefix_length': prefix}
+                elif extra.get('ipv4'):
                     if isinstance(extra['ipv4'], str):
                         ip, prefix = parse_cidr(extra['ipv4'])
-                        ovs_extra['ipv4'] = {'address': ip, 'prefix_length': prefix}
+                        extra_ip = {'address': ip, 'prefix_length': prefix}
                     elif isinstance(extra['ipv4'], dict):
-                        ovs_extra['ipv4'] = extra['ipv4']
+                        extra_ip = extra['ipv4']
+                if extra_ip:
+                    ovs_extra['ipv4'] = extra_ip
                 ovs_interfaces.append(ovs_extra)
 
         ovs_bridges.append({
