@@ -14,6 +14,7 @@ A CLI utility to generate Kubernetes `NodeNetworkConfigurationPolicy` (NNCP) man
 - **Auto-naming** — policy names, interface names generated from conventions
 - **Validation** — catches duplicate IPs, missing nodes/roles, bad config
 - **Dry-run** — preview without writing files
+- **Extra ports** — add additional ports (NICs, OVS interfaces) to any bridge
 - **Flexible output** — per-file, single multi-doc YAML, or stdout
 
 ## Requirements
@@ -97,6 +98,25 @@ networks:
     addresses:                          # per-node IPs (node-based only)
       wrkr01: 172.25.100.23/24
       wrkr02: 172.25.100.24/24
+
+  # Extra ports: add OVS interfaces or NICs to a bridge
+  vm-storage:
+    role: worker
+    bridge: br-vm-stor
+    nic: ens2f1
+    allow_extra_patch_ports: true
+    ovn_mapping: vm-storage-br
+    extra_ports:
+      - name: ens2f2                    # plain NIC port
+      - name: ovs-storage0             # OVS interface with IP + VLAN
+        type: ovs-interface
+        mtu: 9000
+        ipv4: 172.25.54.23/24
+        vlan:
+          mode: access
+          tag: 54
+      - name: ovs-internal0            # OVS interface without IP
+        type: ovs-interface
 ```
 
 ## Config Reference
@@ -132,6 +152,16 @@ networks:
 | `allow_extra_patch_ports` | bool | no | OVS bridge option |
 | `ovn_mapping` | string/object | no | OVN bridge-mapping localnet name |
 | `addresses` | map | no | node → CIDR mapping (node-based only, not with role) |
+| `extra_ports` | list | no | Additional ports to add to the bridge (see below) |
+
+### `networks.<name>.extra_ports[]`
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | yes | Port/interface name |
+| `type` | string | no | Set to `ovs-interface` to generate an OVS internal interface |
+| `mtu` | int | no | MTU override (defaults to network/global MTU) |
+| `ipv4` | string | no | IP address in CIDR format, e.g. `172.25.54.23/24` (ovs-interface only) |
+| `vlan` | object | no | VLAN config for this port (`mode` + `tag`) |
 
 ### `networks.<name>.bond`
 | Field | Type | Default | Description |

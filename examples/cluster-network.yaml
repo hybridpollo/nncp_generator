@@ -73,6 +73,39 @@ networks:
     nic: ens4f0
 
   # ===========================================================================
+  # EXTRA PORTS EXAMPLES
+  # Add additional ports to a bridge — plain NICs or OVS interfaces.
+  # OVS interfaces (type: ovs-interface) generate both the interface
+  # definition and the bridge port entry.
+  # ===========================================================================
+
+  # OVS bridge with extra NIC port and an OVS interface with IP + VLAN
+  vm-storage:
+    role: worker
+    bridge: br-vm-stor
+    nic: ens5f0
+    allow_extra_patch_ports: true
+    ovn_mapping: vm-storage-br
+    extra_ports:
+      - name: ens5f1                    # additional NIC port (no config needed)
+      - name: ovs-stor0                 # OVS internal interface with IP and VLAN
+        type: ovs-interface
+        mtu: 9000
+        ipv4: 172.25.55.1/24
+        vlan:
+          mode: access
+          tag: 55
+
+  # OVS bridge with an OVS interface without IP (internal port, no address)
+  internal:
+    role: worker
+    bridge: br-internal
+    nic: ens6f0
+    extra_ports:
+      - name: ovs-int0                  # OVS interface, no IP
+        type: ovs-interface
+
+  # ===========================================================================
   # NODE-BASED EXAMPLES
   # These generate one NNCP per node with per-node static IPs.
   # Use for storage, management, or any network needing unique addresses.
